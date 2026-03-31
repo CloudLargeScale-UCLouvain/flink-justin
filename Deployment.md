@@ -1,67 +1,77 @@
 # Deployment
 
-:warning: We expect the reader followed the [instructions to install the required tools.](./Requirements.md)
+> **Prerequisites:** Follow [Requirements.md](./Requirements.md) first to install all tools and build the Docker images.
 
-### Creating a local cluster
+## Cluster layout
 
-By default, the scripts we use create a local cluster of 4 virtual nodes:
-1. 1 control-plane
-1. 1 manager (Prometheus, Grafana, ...)
-1. 1 node hosting the JobManager
-1. 1 node hosting the TaskManagers
+The Kind cluster consists of 4 virtual nodes:
 
- This value can be modified in the [cluster.yaml](./scripts/infra/kind/cluster.yaml) file by appending new more TaskManagers as follows:
- ```yaml
+| Node | Role | Label |
+|------|------|-------|
+| control-plane | Kubernetes control plane | — |
+| worker (manager) | Prometheus, Grafana, Pushgateway | `tier=manager`, `ingress-ready=true` |
+| worker (jobmanager) | Flink JobManager, Operator | `tier=jobmanager` |
+| worker (taskmanager) | Flink TaskManagers | `tier=taskmanager` |
+
+The manager node has ports 80 and 443 mapped to the host, which is required for the ingress controller to be reachable from outside the cluster. ingress-nginx is pinned to this node via the `ingress-ready=true` label.
+
+Additional TaskManager nodes can be added by appending workers to [scripts/infra/kind/cluster.yaml](./scripts/infra/kind/cluster.yaml):
+
+```yaml
 - role: worker
-    kubeadmConfigPatches:
-      - |
-        kind: JoinConfiguration
-        nodeRegistration:
-          kubeletExtraArgs:
-            node-labels: "tier=taskmanager"
- ```
+  kubeadmConfigPatches:
+    - |
+      kind: JoinConfiguration
+      nodeRegistration:
+        kubeletExtraArgs:
+          node-labels: "tier=taskmanager"
+```
 
- From the [Jupyter notebook web page](http://localhost:8888/notebooks/scripts/infra/kind/init-cluster.ipynb), open the [init-cluster.ipynb](./scripts/infra/kind/init-cluster.ipynb) file and execute the whole notebook.
- This will install the required python libraries, create the cluster, and install the services using Helm.
+## Setting INGRESS_IP
 
- :warning: If the command fails with a permission denied from Docker, although it works outside the jupyter notebook, execute the following command:
- ```bash
-$ sudo chmod 666 /var/run/docker.sock
- ```
+By default, all ingress hostnames resolve to `127.0.0.1` (local access). If you are deploying on a remote VM and want to reach the services from your machine, export the VM's IP before running the cluster init notebook:
 
- ### Pushing the built images
-To use the build Docker images, they need to be available from all nodes.
-Instead of pushing the previously built images to a public repository, we can use the following commands to locally load them into the nodes created by Kind.
-
- ```bash
- $ kind load docker-image flink-justin:dais
- $ kind load docker-image flink-kubernetes-operator:dais
- ```
-
-:warning: This operation can sometimes loop indefinitely although the operation succeeded.
-
-
-### Deploying the Flink Kubernetes Operator
-The Flink Kubernetes Operator is responsible of creating JobManagers, TaskManagers, and deploying Flink jobs on newly spawned workers. It also holds the logic of the autoscaler.
-
-The operator is deployed automatically by the init-cluster notebook via `common_modules.sh`, pinned to the `jobmanager` node using a `nodeSelector`.
-
-If you need to deploy it manually from the project root directory:
 ```bash
-# From the root directory
+$ export INGRESS_IP=<your-vm-ip>
+```
+
+IPv6 addresses are supported — colons are automatically replaced with dashes to comply with the `sslip.io` hostname format (e.g. `2001:db8::1` → `2001-db8--1`).
+
+## Creating the cluster
+
+From the [Jupyter notebook web page](http://localhost:8888), open [scripts/infra/kind/init-cluster.ipynb](./scripts/infra/kind/init-cluster.ipynb) and run all cells. This will:
+
+1. Create the Kind cluster.
+2. Load the Docker images onto the relevant nodes (targeting only the nodes that need each image).
+3. Install all services via Helm (Prometheus, Grafana, Pushgateway, cert-manager, local-path-provisioner).
+4. Deploy the ingress controller pinned to the manager node.
+5. Deploy the Flink Kubernetes Operator pinned to the jobmanager node.
+
+> **If the notebook fails with a Docker permission error**, run:
+> ```bash
+> $ sudo chmod 666 /var/run/docker.sock
+> ```
+
+## Deploying the Flink Kubernetes Operator manually
+
+The operator is deployed automatically by the init notebook. If you need to redeploy it manually, run the following from the **repository root**:
+
+```bash
 $ helm install flink-kubernetes-operator ./flink-kubernetes-operator/helm/flink-kubernetes-operator \
   --set image.repository=flink-kubernetes-operator \
   --set image.tag=dais \
   --set operatorPod.nodeSelector.tier=jobmanager \
   -f ./flink-kubernetes-operator/examples/autoscaling/values.yaml
 ```
-:warning: If you changed the name or the tag of the image when building it, please reflect the changes in the command.
 
-To ensure that the operator is running:
+> **Note:** If you changed the image name or tag during the build step, update `--set image.repository` and `--set image.tag` accordingly.
+
+To verify the operator is running:
+
 ```bash
 $ kubectl get pods
 NAME                                         READY   STATUS    RESTARTS   AGE
 flink-kubernetes-operator-6569cb9b96-q4dbc   2/2     Running   0          3m25s
 ```
 
-We are now all set to deploy a Flink job!
+The operator is now ready to deploy Flink clusters and jobs. See [Benchmarks.md](./Benchmarks.md) for next steps.
