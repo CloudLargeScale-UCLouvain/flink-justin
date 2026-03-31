@@ -2,11 +2,11 @@
 
 > Artifact for the paper *"Justin: Hybrid CPU/Memory Elastic Scaling for Distributed Stream Processing"*,
 > accepted at DAIS 2025.
-> [arXiv:2505.19739](https://arxiv.org/abs/2505.19739) · [Zenodo](https://doi.org/10.5281/zenodo.15338861)
+> [doi:10.1007/978-3-031-95728-4_6](https://link.springer.com/chapter/10.1007/978-3-031-95728-4_6)
 
 ## What is Justin?
 
-Justin is an auto-scaler for Apache Flink that combines **horizontal scaling** (adjusting operator parallelism) with **vertical memory scaling** (adjusting the amount of managed memory allocated to each operator). It extends [DS2](https://github.com/lsds/ds2), a state-of-the-art horizontal auto-scaler, with a memory dimension.
+Justin is an auto-scaler for Apache Flink that combines **horizontal scaling** (adjusting operator parallelism) with **vertical memory scaling** (adjusting the amount of managed memory allocated to each operator). It extends [DS2](https://www.usenix.org/conference/osdi18/presentation/kalavri), a state-of-the-art horizontal auto-scaler, with a memory dimension.
 
 The core observation is that stateful stream processing operators (e.g., window aggregations, joins) rely on RocksDB, which uses a managed memory budget as a block cache. When the working set of a stateful operator grows beyond the cache size, RocksDB falls back to disk I/O, which increases state access latency and degrades throughput. In this regime, adding more parallel instances (horizontal scaling) does not help — each new instance gets the same small cache and faces the same I/O bottleneck. The right action is to give each instance more memory.
 
