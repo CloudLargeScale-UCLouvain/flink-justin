@@ -90,6 +90,14 @@ spec:
     resource:
       memory: "2048m"
       cpu: 1
+    podTemplate:
+      apiVersion: v1
+      kind: Pod
+      metadata:
+        name: job-manager-pod-template
+      spec:
+        nodeSelector:
+          tier: jobmanager
 
   taskManager:
     resource:
@@ -100,6 +108,9 @@ spec:
       kind: Pod
       metadata:
         name: task-manager-pod-template
+      spec:
+        nodeSelector:
+          tier: taskmanager
   job:
     jarURI: local:///opt/flink/examples/justin/Query5.jar
     parallelism: 1

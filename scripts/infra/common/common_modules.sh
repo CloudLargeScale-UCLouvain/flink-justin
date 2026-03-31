@@ -10,7 +10,6 @@ kubectl apply -f ./cluster-role-binding-default.yaml
 
 kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.5.3/cert-manager.yaml
 kubectl --namespace cert-manager rollout status deployment/cert-manager-webhook
-kubectl apply -f https://github.com/spotify/flink-on-k8s-operator/releases/download/v0.4.0-beta.8/flink-operator.yaml
 
 # storage
 kubectl create namespace manager
@@ -22,6 +21,11 @@ sleep 30 # sleep for 30 seconds for application of configuration in local-path
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm repo update
 helm install --namespace manager --version 30.0.2 prom prometheus-community/kube-prometheus-stack -f ./values-prom.yaml
+helm install --namespace manager pushgateway prometheus-community/prometheus-pushgateway \
+  --set nodeSelector.tier=manager \
+  --set serviceMonitor.enabled=true \
+  --set serviceMonitor.namespace=manager \
+  --set serviceMonitor.additionalLabels.release=prom
 
 kubectl apply -f pod-monitor.yaml
 
@@ -35,5 +39,16 @@ sleep 10 # sometimes timeout
 helm repo add cloudhut https://raw.githubusercontent.com/cloudhut/charts/master/archives
 helm repo update
 
-# ingress for prom, grafana
-kubectl apply -f ../common/ingress-localhost.yaml
+# grafana dashboard
+kubectl apply -f ./grafana-dashboard-flink.yaml
+
+# ingress for prom, grafana — normalize INGRESS_IP for sslip.io (colons → dashes for IPv6)
+export INGRESS_IP=$(echo "${INGRESS_IP:-127.0.0.1}" | tr ':' '-')
+envsubst < ../common/ingress-localhost.yaml | kubectl apply -f -
+
+# flink kubernetes operator
+helm install flink-kubernetes-operator ../../../flink-kubernetes-operator/helm/flink-kubernetes-operator \
+  --set image.repository=flink-kubernetes-operator \
+  --set image.tag=dais \
+  --set operatorPod.nodeSelector.tier=jobmanager \
+  -f ../../../flink-kubernetes-operator/examples/autoscaling/values.yaml

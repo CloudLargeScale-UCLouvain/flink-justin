@@ -1,80 +1,150 @@
 # Running the benchmarks
 
-## Accesses to Flink UI, Grafana, And Promotheus
+## Accessing the dashboards
 
-We include, in the deployment scripts, the deployment of Ingresses to access the 3 desired services. They can be accessed via the following URLs.
+The deployment scripts install ingresses for the three services. Hostnames are based on the `INGRESS_IP` environment variable (defaults to `127.0.0.1` for local use; set to the VM's IP when running remotely).
 
-- Prometheus: [prometheus.127.0.0.1.sslip.io](prometheus.127.0.0.1.sslip.io)
-- Grafana: [grafana.127.0.0.1.sslip.io](grafana.127.0.0.1.sslip.io) (login: admin, password: prom-operator)
-- Flink UI: [flink.127.0.0.1.sslip.io](flink.127.0.0.1.sslip.io)
-
-The ingresses might not work in some setups. In that case, the easiest way to access those services is throw the Port-Forwarding capabilities of Kubernetes.
-In separate terminals, run the following commands:
-```bash
-# Grafana
-$ kubectl port-forward -n manager svc/prom-grafana 3000:80
-```
-
-```bash
-# Prometheus
-$ kubectl port-forward -n manager svc/prom-kube-prometheus-stack-prometheus 9090:9090
-```
-
-```bash
-# Flink (make sure the service is running, i.e., after submitting the query)
-$ kubectl port-forward svc/flink-rest 8081:8081
-```
+- Prometheus: `prometheus.<INGRESS_IP>.sslip.io` ([prometheus.127.0.0.1.sslip.io](http://prometheus.127.0.0.1.sslip.io) by default)
+- Grafana: `grafana.<INGRESS_IP>.sslip.io` ([grafana.127.0.0.1.sslip.io](http://grafana.127.0.0.1.sslip.io) by default) — login: `admin` / `prom-operator`
+- Flink UI: `flink.<INGRESS_IP>.sslip.io` ([flink.127.0.0.1.sslip.io](http://flink.127.0.0.1.sslip.io) by default)
 
 ## Nexmark benchmarks
-Open the [./notebooks/nexmark/xp.ipynb](http://localhost:8888/notebooks/notebooks/nexmark/xp.ipynb) notebook in your browser (make sure your jupyter server is still up and running, following the Requirements.md instruction).
 
-Before continuing, make sure that the Flink image name in the following file is the same as the one you used during the build phase:
+The Nexmark benchmark suite evaluates streaming query performance over a synthetic auction event stream. Open [./notebooks/nexmark/xp.ipynb](http://localhost:8888/notebooks/notebooks/nexmark/xp.ipynb) in your browser.
+
+### Queries
+
+Each query exercises a different workload pattern:
+
+| Query | Pattern | Stateful? | What to observe |
+|-------|---------|-----------|-----------------|
+| Q1 | Map (currency conversion) | No | Horizontal scaling only; memory stays at ⊥ |
+| Q2 | Filter (item selection) | No | Horizontal scaling only; memory stays at ⊥ |
+| Q3 | Join + filters (person/auction) | Yes | Memory scale-up when working set grows |
+| Q5 | Sliding-window aggregation (hot items) | Yes | Memory scale-up under high cardinality |
+| Q8 | Tumbling-window join (new sellers) | Yes | Vertical then horizontal scaling |
+| Q11 | Session-window aggregation (user bids) | Yes | Memory scale-up with session state growth |
+
+### Running an experiment
+
+Before running, make sure the Flink image name in each query YAML matches what you built:
+
 ```yaml
-apiVersion: flink.apache.org/v1beta1
-kind: FlinkDeployment
-metadata:
-  name: flink
+# notebooks/nexmark/qX/queryX.yaml
 spec:
-  image: flink-justin:dais <------- Your Flink image name
+  image: flink-justin:dais   # ← must match your built image tag
 ```
-1. [./notebooks/motivation/read-only/query.yaml](./notebooks/nexmark/queryX/queryX.yaml), with X being the query number.
 
-The notebook contains a cell for each query. These cells will execute the query twice, one with the default auto scaler, and one with the Justin auto scaler.
+Open the notebook and run all cells. Each query cell:
+1. Submits the query to the Flink cluster.
+2. Waits until a Flink job reaches `RUNNING` state.
+3. Runs the experiment for a fixed duration, pushing managed memory metrics to Prometheus every 30 seconds.
+4. The experiment runs **twice**: once with the default DS2 auto-scaler, once with Justin.
 
-### Playing with Justin
+Watch the **Flink – Justin** Grafana dashboard to observe:
+- Source throughput staying stable as the auto-scaler reacts to load.
+- Operator parallelism changes (horizontal scaling decisions by DS2).
+- Managed memory per operator jumping between levels (158 MB → 316 MB → 632 MB) when Justin detects cache pressure.
+- For stateless operators (Q1, Q2): memory remains at 0 — only parallelism changes.
 
-As explained in the paper, Justin relies on multiple parameters such as a minimum cache hit rate and minimum state access latency.
-These parameters can be modified via the YAML file of the query, namely the lines:
-1. `job.autoscaler.cache-hit-rate.min.threshold: "0.8"` (ratio)
-2. `job.autoscaler.state-latency.threshold: "1000000.0"` (nano seconds)
+### Tuning Justin's parameters
 
-Note that changing those values can result in different scaling decisions.
+Justin's two main thresholds can be adjusted per query in the YAML file:
 
-Additionally, the reader can also modify the stabilization interval (`job.autoscaler.stabilization.interval`) and metric window (`job.autoscaler.metrics.window`).
+```yaml
+flinkConfiguration:
+  job.autoscaler.cache-hit-rate.min.threshold: "0.8"   # trigger memory scale-up below this cache hit rate
+  job.autoscaler.state-latency.threshold: "1000000.0"  # trigger memory scale-up above this latency (ns)
+```
 
-### Modifying the Justin Policy.
+Lowering the cache hit rate threshold (e.g., `0.7`) makes Justin more tolerant before scaling memory. Lowering the latency threshold (e.g., `500000.0`) makes it more aggressive. You can also adjust:
 
-The Justin policy is implemented in the Flink Kubernetes Operator's auto scaler module.
-The reader can easily apply its own policy logic by modifying the [policy](https://github.com/CloudLargeScale-UCLouvain/flink-justin/blob/a3d6539d40668a92f910ea22adb15e7120884e8c/flink-kubernetes-operator/flink-autoscaler/src/main/java/org/apache/flink/autoscaler/ScalingExecutor.java#L567) method of the [ScalingExecutor.java](./flink-kubernetes-operator/flink-autoscaler/src/main/java/org/apache/flink/autoscaler/ScalingExecutor.java) file. 
-The reviewer has access to previous Scaling Decisions (if any) through the `scaling` parameter.
-
-Once modified, the image needs to be rebuilt and pushed to the nodes.
-Delete the operator and its resources by executing the script `delete.sh` located in the `scripts`folder. This script will delete any Flink job pending, the operator, and the 3 custom resource definitions.
-Once deleted, you can re-deploy the operator following the previous instructions.
-
+- `job.autoscaler.stabilization.interval`: cooldown between scaling decisions.
+- `job.autoscaler.metrics.window`: averaging window for metrics.
 
 ## Motivation benchmarks
-Open the [./notebooks/motivation/xp.ipynb](http://localhost:8888/notebooks/notebooks/motivation/xp.ipynb) notebook in your browser (make sure your jupyter server is still up and running, following the Requirements.md instruction).
 
-Before continuing, make sure that the Flink image name in the following file is the same as the one you used during the build phase:
+Open [./notebooks/motivation/xp.ipynb](http://localhost:8888/notebooks/notebooks/motivation/xp.ipynb) in your browser.
+
+These benchmarks isolate the three RocksDB access patterns to motivate the need for vertical scaling:
+
+- **read-only** ([query.yaml](./notebooks/motivation/read-only/query.yaml)): only reads from state.
+- **write-only** ([query.yaml](./notebooks/motivation/write-only/query.yaml)): only writes to state.
+- **update** ([query.yaml](./notebooks/motivation/update/query.yaml)): mixed reads and writes.
+
+Make sure the image name matches your build before running.
+
+## Running a custom query
+
+You can run any Flink job under Justin's auto-scaler by writing a `FlinkDeployment` manifest. Below is a minimal template:
+
 ```yaml
 apiVersion: flink.apache.org/v1beta1
 kind: FlinkDeployment
 metadata:
-  name: flink
+  name: my-job
 spec:
-  image: flink-justin:dais <------- Your Flink image name
+  image: flink-justin:dais           # your Flink image
+  flinkVersion: v1_17
+  flinkConfiguration:
+    taskmanager.numberOfTaskSlots: "1"
+    state.backend: "rocksdb"
+    state.backend.rocksdb.memory.managed: "true"
+    # Justin parameters
+    job.autoscaler.cache-hit-rate.min.threshold: "0.8"
+    job.autoscaler.state-latency.threshold: "1000000.0"
+    job.autoscaler.stabilization.interval: "1m"
+    job.autoscaler.metrics.window: "3m"
+  serviceAccount: flink
+  jobManager:
+    resource:
+      memory: "1024m"
+      cpu: 1
+    podTemplate:
+      spec:
+        nodeSelector:
+          tier: jobmanager
+  taskManager:
+    resource:
+      memory: "1024m"
+      cpu: 1
+    podTemplate:
+      spec:
+        nodeSelector:
+          tier: taskmanager
+  job:
+    jarURI: local:///opt/flink/usrlib/my-job.jar
+    parallelism: 1
+    upgradeMode: stateless
 ```
-1. [./notebooks/motivation/read-only/query.yaml](./notebooks/motivation/read-only/query.yaml)
-1. [./notebooks/motivation/write-only/query.yaml](./notebooks/motivation/write-only/query.yaml)
-1. [./notebooks/motivation/update/query.yaml](./notebooks/motivation/update/query.yaml)
+
+### Steps
+
+1. **Build your JAR** with `mvn package` (or equivalent) and copy it into your Flink Docker image under `/opt/flink/usrlib/`.
+
+2. **Load the image** into Kind:
+   ```python
+   # In notebooks/infra/kind/init-cluster.ipynb or a new cell
+   kind_load("flink-justin:dais")
+   ```
+
+3. **Submit the job**:
+   ```bash
+   kubectl apply -f my-job.yaml
+   ```
+
+4. **Monitor** via the Flink UI (`flink.<INGRESS_IP>.sslip.io`) and Grafana (`grafana.<INGRESS_IP>.sslip.io`).
+
+5. **Modify the Justin policy** (optional): The scaling decision logic is in [`ScalingExecutor.java`](./flink-kubernetes-operator/flink-autoscaler/src/main/java/org/apache/flink/autoscaler/ScalingExecutor.java) — see the `policy()` method. After modifying, rebuild the operator image and reload it:
+   ```bash
+   # From repo root
+   docker build -t flink-kubernetes-operator:dais ./flink-kubernetes-operator
+   kind load docker-image flink-kubernetes-operator:dais
+   # Delete and redeploy the operator
+   bash scripts/delete.sh
+   helm install flink-kubernetes-operator ./flink-kubernetes-operator/helm/flink-kubernetes-operator \
+     --set image.repository=flink-kubernetes-operator \
+     --set image.tag=dais \
+     --set operatorPod.nodeSelector.tier=jobmanager \
+     -f ./flink-kubernetes-operator/examples/autoscaling/values.yaml
+   ```
