@@ -52,6 +52,8 @@ From the [Jupyter notebook web page](http://localhost:8888), open [scripts/infra
 > $ sudo chmod 666 /var/run/docker.sock
 > ```
 
+> **Note on ingress-nginx service status:** After deployment, `kubectl get svc -n ingress-nginx` will show the `ingress-nginx-controller` service with `EXTERNAL-IP: <pending>`. This is expected — Kind does not provision a cloud load balancer. Traffic reaches the ingress via the host ports (80/443) mapped on the manager node, so `<pending>` does not indicate a problem. All ingress hostnames are accessible as documented in [Benchmarks.md](./Benchmarks.md).
+
 ## Deploying the Flink Kubernetes Operator manually
 
 The operator is deployed automatically by the init notebook. If you need to redeploy it manually, run the following from the **repository root**:

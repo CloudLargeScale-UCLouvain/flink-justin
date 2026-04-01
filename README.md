@@ -11,10 +11,9 @@ Justin is an auto-scaler for Apache Flink that combines **horizontal scaling** (
 The core observation is that stateful stream processing operators (e.g., window aggregations, joins) rely on RocksDB, which uses a managed memory budget as a block cache. When the working set of a stateful operator grows beyond the cache size, RocksDB falls back to disk I/O, which increases state access latency and degrades throughput. In this regime, adding more parallel instances (horizontal scaling) does not help — each new instance gets the same small cache and faces the same I/O bottleneck. The right action is to give each instance more memory.
 
 Justin detects this regime using two metrics per operator:
-- **Cache hit rate** (Δθ): falls below 80% when the working set exceeds the cache.
-- **State access latency** (Δτ): exceeds 1 ms (1,000,000 ns) when RocksDB is I/O-bound.
+- **Cache hit rate** (Δθ) and **state access latency** (Δτ): a low cache hit rate and high state access latency are symptoms of an undersized RocksDB block cache — the operator's working set no longer fits in the allocated managed memory, forcing frequent disk reads.
 
-When both thresholds are violated for a stateful operator, Justin scales memory up (vertical). Otherwise, it delegates to DS2 for horizontal scaling. Memory is allocated in discrete levels that double from one level to the next, based on the default allocation. Stateless operators are assigned no managed memory (⊥).
+When either threshold is violated for a stateful operator, Justin scales memory up (vertical). Otherwise, it delegates to DS2 for horizontal scaling. Memory is allocated in discrete levels that double from one level to the next, based on the default allocation. Stateless operators are assigned no managed memory (⊥).
 
 ### How the scaling policy works
 

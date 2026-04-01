@@ -47,6 +47,8 @@ Watch the **Flink – Justin** Grafana dashboard to observe:
 - Managed memory per operator jumping between levels (158 MB → 316 MB → 632 MB) when Justin detects cache pressure.
 - For stateless operators (Q1, Q2): memory remains at 0 — only parallelism changes.
 
+> **Note on dashboard plots vs. the paper:** The Grafana plots can differ from those shown in the paper in absolute numbers (the paper used a Grid5000 cluster with dedicated hardware). The key patterns to look for are the same: memory step-ups for stateful operators under Justin, and parallelism-only changes under the DS2 baseline. The number of scaling decisions and their timing may also differ due to resource contention on a local environment using Kind.
+
 ### Tuning Justin's parameters
 
 Justin's two main thresholds can be adjusted per query in the YAML file:
