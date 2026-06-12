@@ -42,9 +42,7 @@ helm repo update
 # grafana dashboard
 kubectl apply -f ./grafana-dashboard-flink.yaml
 
-# ingress for prom, grafana — normalize INGRESS_IP for sslip.io (colons → dashes for IPv6)
-export INGRESS_IP=$(echo "${INGRESS_IP:-127.0.0.1}" | tr ':' '-')
-envsubst < ../common/ingress-localhost.yaml | kubectl apply -f -
+kubectl apply -f ../common/new_ingress.yaml
 
 # flink kubernetes operator
 helm install flink-kubernetes-operator ../../../flink-kubernetes-operator/helm/flink-kubernetes-operator \

@@ -4,13 +4,14 @@
 
 ## Cluster layout
 
-The Kind cluster consists of 4 virtual nodes:
+The Kind cluster consists of 5 virtual nodes:
 
 | Node | Role | Label |
 |------|------|-------|
 | control-plane | Kubernetes control plane | — |
 | worker (manager) | Prometheus, Grafana, Pushgateway | `tier=manager`, `ingress-ready=true` |
 | worker (jobmanager) | Flink JobManager, Operator | `tier=jobmanager` |
+| worker (taskmanager) | Flink TaskManagers | `tier=taskmanager` |
 | worker (taskmanager) | Flink TaskManagers | `tier=taskmanager` |
 
 The manager node has ports 80 and 443 mapped to the host, which is required for the ingress controller to be reachable from outside the cluster. ingress-nginx is pinned to this node via the `ingress-ready=true` label.
@@ -29,13 +30,13 @@ Additional TaskManager nodes can be added by appending workers to [scripts/infra
 
 ## Setting INGRESS_IP
 
-By default, all ingress hostnames resolve to `127.0.0.1` (local access). If you are deploying on a remote VM and want to reach the services from your machine, export the VM's IP before running the cluster init notebook:
+By default, all services are reachable at `127.0.0.1` (local access). If you are deploying on a remote VM, export the VM's IP before running the cluster init notebook so the notebooks use the correct base URL:
 
 ```bash
 $ export INGRESS_IP=<your-vm-ip>
 ```
 
-IPv6 addresses are supported — colons are automatically replaced with dashes to comply with the `sslip.io` hostname format (e.g. `2001:db8::1` → `2001-db8--1`).
+Services are then reachable at `http://<INGRESS_IP>/flink`, `http://<INGRESS_IP>/grafana`, etc.
 
 ## Creating the cluster
 

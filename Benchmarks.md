@@ -2,11 +2,12 @@
 
 ## Accessing the dashboards
 
-The deployment scripts install ingresses for the three services. Hostnames are based on the `INGRESS_IP` environment variable (defaults to `127.0.0.1` for local use; set to the VM's IP when running remotely).
+The deployment scripts install a path-based ingress. All services are reachable under the same host (`INGRESS_IP`, defaults to `127.0.0.1` for local use; set to the VM's IP when running remotely):
 
-- Prometheus: `prometheus.<INGRESS_IP>.sslip.io` ([prometheus.127.0.0.1.sslip.io](http://prometheus.127.0.0.1.sslip.io) by default)
-- Grafana: `grafana.<INGRESS_IP>.sslip.io` ([grafana.127.0.0.1.sslip.io](http://grafana.127.0.0.1.sslip.io) by default) — login: `admin` / `prom-operator`
-- Flink UI: `flink.<INGRESS_IP>.sslip.io` ([flink.127.0.0.1.sslip.io](http://flink.127.0.0.1.sslip.io) by default)
+- Prometheus: `http://<INGRESS_IP>/prom` ([127.0.0.1/prom](http://127.0.0.1/prom) by default)
+- Grafana: `http://<INGRESS_IP>/grafana` ([127.0.0.1/grafana](http://127.0.0.1/grafana) by default) — login: `admin` / `prom-operator`
+- Flink UI: `http://<INGRESS_IP>/flink` ([127.0.0.1/flink](http://127.0.0.1/flink) by default)
+- Pushgateway: `http://<INGRESS_IP>/pushgateway` ([127.0.0.1/pushgateway](http://127.0.0.1/pushgateway) by default)
 
 ## Nexmark benchmarks
 
@@ -67,6 +68,14 @@ Lowering the cache hit rate threshold (e.g., `0.7`) makes Justin more tolerant b
 ## Motivation benchmarks
 
 Open [./notebooks/motivation/xp.ipynb](http://localhost:8888/notebooks/notebooks/motivation/xp.ipynb) in your browser.
+
+### Observing RocksDB metrics in Grafana
+
+Open the **Flink – Justin** dashboard in Grafana (`grafana.<INGRESS_IP>.sslip.io`, default [grafana.127.0.0.1.sslip.io](http://grafana.127.0.0.1.sslip.io), login: `admin` / `prom-operator`). The relevant panels are:
+
+- **RocksDB Cache Hit Rate** — ratio of block cache hits to total accesses (`hits / (hits + misses)`), computed as a 2-minute rate. A drop below the `job.autoscaler.cache-hit-rate.min.threshold` triggers a memory scale-up.
+- **State Access Latency p90 (ns)** — 90th-percentile latency of state read operations (value, map, list, aggregate, reducing state), broken down by operator. Exceeding `job.autoscaler.state-latency.threshold` also triggers a scale-up.
+- **Allocated Managed Memory per Operator** — shows the RocksDB block cache budget per operator after Justin acts. Watch it step up (128 MB → 256 MB → 512 MB → …) as cache pressure is detected.
 
 These benchmarks isolate the three RocksDB access patterns to motivate the need for vertical scaling:
 

@@ -1,0 +1,56 @@
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: charon
+  namespace: manager
+  annotations:
+    spec.ingressClassName: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /grafana(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: prom-grafana
+                port:
+                  number: 80
+          - path: /prom(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: prom-kube-prometheus-stack-prometheus
+                port:
+                  number: 9090
+          - path: /pushgateway(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: pushgateway-prometheus-pushgateway
+                port:
+                  number: 9091
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: flink
+  namespace: default
+  annotations:
+    spec.ingressClassName: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /flink(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: flink-rest
+                port:
+                  number: 8081
